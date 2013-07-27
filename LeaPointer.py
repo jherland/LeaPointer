@@ -92,7 +92,10 @@ class HandMovePointer(BasePointer):
             self.vel = NaN # (mm/s)
             self.accel = NaN # (mm/s²)
             try:
-                self.pos = frame.hands[0].palm_position
+                fingers = frame.hands[0].fingers
+                # Calculate average finger tip position
+                self.pos = sum((f.tip_position for f in fingers),
+                               Leap.Vector()) / len(fingers)
                 self.elapsed = max(0.000001, self.ts - prev.ts)
                 self.d_pos = self.pos - prev.pos
                 self.vel = self.d_pos.magnitude / self.elapsed
