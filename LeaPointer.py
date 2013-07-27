@@ -128,7 +128,7 @@ class HandMovePointer(BasePointer):
         if (math.isnan(s.accel) # could not calculate acceleration
             or s.elapsed > self.timeout # too long since last update
             or s.vel > self.max_vel # velocity too high
-            or s.accel > self.max_accel): # acceleration too high
+            or abs(s.accel) > self.max_accel): # acceleration too high
             return
 
         if s.tap and s.ts - self.last_tap < self.min_tap_p:
