@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import sys
-sys.path.append("/usr/lib") # Arch Linux installs Leap.py here.
-
+import math
 import time
 from argparse import ArgumentParser
+
+sys.path.append("/usr/lib") # Arch Linux installs Leap.py here.
 
 import Leap
 from pymouse import PyMouse
@@ -79,42 +80,62 @@ class HandPitchPointer(BasePointer):
 class HandMovePointer(BasePointer):
     """Control mouse pointer using hand movement in the Leap's X/Y plane."""
 
+    class State(object):
+        def __init__(self, frame, tap, prev):
+            self.tap = tap
+            self.ts = frame.timestamp / 1000000.0 # (s)
+
+            NaN = float('NaN')
+            self.pos = NaN # (mm)
+            self.elapsed = NaN # (s)
+            self.d_pos = Leap.Vector(NaN, NaN, NaN) # (mm)
+            self.vel = NaN # (mm/s)
+            self.accel = NaN # (mm/s²)
+            try:
+                self.pos = frame.hands[0].palm_position
+                self.elapsed = max(0.000001, self.ts - prev.ts)
+                self.d_pos = self.pos - prev.pos
+                self.vel = self.d_pos.magnitude / self.elapsed
+                self.accel = (self.vel - prev.vel) / self.elapsed
+            except:
+                pass
+
+        def __str__(self):
+            return ("{self.ts:10.3f}: "
+                    "({self.d_pos.x:+5.1f}, {self.d_pos.y:+5.1f})mm "
+                    "in {self.elapsed:5.3f}s"
+                    " => {self.vel:10.3f}mm/s, {self.accel:10.3f}mm/s² {tap}"
+                    ).format(self=self, tap="TAP!" if self.tap else "")
+
     def __init__(self, mouse = None, logger = None):
         BasePointer.__init__(self, mouse, logger)
-        self.mult = (4, 4) # multipliers on position delta (mm)
         self.timeout = 1.0 # forget previous frame after this long (s)
-        self.max_vel = 2.0 # ignore velocity faster than this (m/s)
-        self.max_accel = 100.0 # ignore acceleration greater than this (m/s²)
+        self.max_vel = 2000 # ignore velocity faster than this (mm/s)
+        self.max_accel = 100000 # ignore acceleration greater than this (mm/s²)
         self.min_tap_p = 0.2 # discard multiple taps within this long (s)
-        self.prev_frame = None # previous frame
-        self.prev_vel = 0 # previous velocity
-        self.prev_tap = 0 # timestamp of last recorded tap
+
+        self.mult = (4, 4) # multipliers on position delta
+
+        self.prev = None # previous state
+        self.last_tap = 0 # timestamp of last tap
 
     def update(self, frame, tap):
-        if frame.hands.empty: # Skip if no hands
-            return
-        p, self.prev_frame = self.prev_frame, frame
-        if not p: # Skip if no previous frame to compare to
-            return
-        elapsed = max(0.000001, (frame.timestamp - p.timestamp) / 1000000.0)
-        if elapsed > self.timeout: # Skip if too long since previous frame
-            return
-        d = frame.hands[0].palm_position - p.hands[0].palm_position # delta
-        v = (d.magnitude / 1000.0) / elapsed # velocity (m/s)
-        a = (v - self.prev_vel) / elapsed # acceleration (m/s²)
-        self.prev_vel = v
-        if v > self.max_vel or a > self.max_accel: # Skip on large v or a
+        s = self.prev = self.State(frame, tap, self.prev)
+
+        if (math.isnan(s.accel) # could not calculate acceleration
+            or s.elapsed > self.timeout # too long since last update
+            or s.vel > self.max_vel # velocity too high
+            or s.accel > self.max_accel): # acceleration too high
             return
 
-        if tap and frame.timestamp - self.prev_tap < self.min_tap_p * 1000000:
-            tap = False
-        if tap:
-            self.prev_tap = frame.timestamp
+        if s.tap and s.ts - self.last_tap < self.min_tap_p:
+            s.tap = False # ignore repeated taps within a self.min_tap_p
+        if s.tap:
+            self.last_tap = s.ts
 
-        self.logger("debug", "%10.3f: %+5.1f, %+5.1f (%5.3fm/s, %8.3fm/s²) %s" % (
-            frame.timestamp / 1000000.0, d.x, d.y, v, a, "TAP!" if tap else ""))
-        self.move(d.x * self.mult[0], -d.y * self.mult[1])
-        if tap:
+        self.logger("debug", s)
+        self.move(s.d_pos.x * self.mult[0], -s.d_pos.y * self.mult[1])
+        if s.tap:
             self.click()
 
 PointerImpls = { 'move': HandMovePointer, 'pitch': HandPitchPointer, }
