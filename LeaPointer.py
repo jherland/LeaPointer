@@ -86,6 +86,7 @@ class HandMovePointer(BasePointer):
             self.ts = frame.timestamp / 1000000.0 # (s)
 
             NaN = float('NaN')
+            self.nfingers = 0
             self.pos = NaN # (mm)
             self.elapsed = NaN # (s)
             self.d_pos = Leap.Vector(NaN, NaN, NaN) # (mm)
@@ -93,6 +94,7 @@ class HandMovePointer(BasePointer):
             self.accel = NaN # (mm/s²)
             try:
                 fingers = frame.hands[0].fingers
+                self.nfingers = len(fingers)
                 # Calculate average finger tip position
                 self.pos = sum((f.tip_position for f in fingers),
                                Leap.Vector()) / len(fingers)
@@ -106,8 +108,8 @@ class HandMovePointer(BasePointer):
         def __str__(self):
             return ("{self.ts:10.3f}: "
                     "({self.d_pos.x:+5.1f}, {self.d_pos.y:+5.1f})mm "
-                    "in {self.elapsed:5.3f}s"
-                    " => {self.vel:10.3f}mm/s, {self.accel:10.3f}mm/s² {tap}"
+                    "in {self.elapsed:5.3f}s ({self.nfingers} fingers)"
+                    " => {self.vel:10.3f}mm/s, {self.accel:11.3f}mm/s² {tap}"
                     ).format(self=self, tap="TAP!" if self.tap else "")
 
     def __init__(self, mouse = None, logger = None):
@@ -116,14 +118,22 @@ class HandMovePointer(BasePointer):
         self.max_vel = 2000 # ignore velocity faster than this (mm/s)
         self.max_accel = 100000 # ignore acceleration greater than this (mm/s²)
         self.min_tap_p = 0.2 # discard multiple taps within this long (s)
-
-        self.mult = (4, 4) # multipliers on position delta
+        self.finger_pause = 0.1 # pause movement when #fingers changes (s)
 
         self.prev = None # previous state
         self.last_tap = 0 # timestamp of last tap
+        self.last_change = 0 # timestamp of last #fingers change
+
+    def multiplier(self, nfingers):
+        # multiplier on d_pos determined by #fingers - fewer fingers -> faster
+        if nfingers <= 0:
+            return 0
+        else:
+            return 16.0 / (nfingers ** 2)
 
     def update(self, frame, tap):
-        s = self.prev = self.State(frame, tap, self.prev)
+        p, s = self.prev, self.State(frame, tap, self.prev)
+        self.prev = s
 
         if (math.isnan(s.accel) # could not calculate acceleration
             or s.elapsed > self.timeout # too long since last update
@@ -131,13 +141,19 @@ class HandMovePointer(BasePointer):
             or abs(s.accel) > self.max_accel): # acceleration too high
             return
 
+        if p and s.nfingers != p.nfingers:
+            self.last_change = s.ts
+        if s.ts - self.last_change < self.finger_pause:
+            s.d_pos *= 0 # don't move pointer when #fingers changes
+
         if s.tap and s.ts - self.last_tap < self.min_tap_p:
             s.tap = False # ignore repeated taps within a self.min_tap_p
         if s.tap:
             self.last_tap = s.ts
 
         self.logger("debug", s)
-        self.move(s.d_pos.x * self.mult[0], -s.d_pos.y * self.mult[1])
+        s.d_pos *= self.multiplier(s.nfingers)
+        self.move(s.d_pos.x, -s.d_pos.y)
         if s.tap:
             self.click()
 
