@@ -92,6 +92,7 @@ class HandMovePointer(BasePointer):
             self.d_pos = Leap.Vector(NaN, NaN, NaN) # (mm)
             self.vel = NaN # (mm/s)
             self.accel = NaN # (mm/s²)
+            # BATMAN!
             try:
                 fingers = frame.hands[0].fingers
                 self.nfingers = len(fingers)
