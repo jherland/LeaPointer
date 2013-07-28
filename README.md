@@ -18,6 +18,9 @@ Running
 3. Run 'LeaPointer.py' (use --help to see available options)
 
 - Move your hand above the Leap Motion device to move the mouse pointer
+- The pointer speed is inversely proportional to the number of fingers
+  extended. Extend one finger to move quickly, and all 5 fingers to do
+  delicate movements. Extending zero fingers disables mouse movement.
 - Do a key tap motion with a finger to generate a mouse click
 
 Supported systems
