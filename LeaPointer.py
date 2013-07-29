@@ -120,6 +120,7 @@ class HandMovePointer(BasePointer):
         self.max_accel = 100000 # ignore acceleration greater than this (mm/s²)
         self.min_tap_p = 0.2 # discard multiple taps within this long (s)
         self.finger_pause = 0.1 # pause movement when #fingers changes (s)
+        self.min_fingers_for_tap = 3 # discard taps when < #fingers present
 
         self.prev = None # previous state
         self.last_tap = 0 # timestamp of last tap
@@ -131,6 +132,11 @@ class HandMovePointer(BasePointer):
             return 0
         else:
             return 16.0 / (nfingers ** 2)
+
+    def tap_enabled(self, s):
+        """Are taps enabled in the context of the given state?"""
+        return not (s.ts - self.last_tap < self.min_tap_p # repeat tap too soon
+                    or s.nfingers < self.min_fingers_for_tap) # too few fingers
 
     def update(self, frame, tap):
         p, s = self.prev, self.State(frame, tap, self.prev)
@@ -147,15 +153,12 @@ class HandMovePointer(BasePointer):
         if s.ts - self.last_change < self.finger_pause:
             s.d_pos *= 0 # don't move pointer when #fingers changes
 
-        if s.tap and s.ts - self.last_tap < self.min_tap_p:
-            s.tap = False # ignore repeated taps within a self.min_tap_p
-        if s.tap:
-            self.last_tap = s.ts
-
         self.logger("debug", s)
         s.d_pos *= self.multiplier(s.nfingers)
         self.move(s.d_pos.x, -s.d_pos.y)
-        if s.tap:
+
+        if s.tap and self.tap_enabled(s):
+            self.last_tap = s.ts
             self.click()
 
 PointerImpls = { 'move': HandMovePointer, 'pitch': HandPitchPointer, }
