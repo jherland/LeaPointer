@@ -87,6 +87,7 @@ class HandMovePointer(BasePointer):
 
             NaN = float('NaN')
             self.nfingers = 0
+            self.d_nfingers = 0
             self.pos = NaN # (mm)
             self.elapsed = NaN # (s)
             self.d_pos = Leap.Vector(NaN, NaN, NaN) # (mm)
@@ -96,6 +97,7 @@ class HandMovePointer(BasePointer):
             try:
                 fingers = frame.hands[0].fingers
                 self.nfingers = len(fingers)
+                self.d_nfingers = self.nfingers - prev.nfingers
                 # Calculate average finger tip position
                 self.pos = sum((f.tip_position for f in fingers),
                                Leap.Vector()) / len(fingers)
@@ -139,8 +141,7 @@ class HandMovePointer(BasePointer):
                     or s.nfingers < self.min_fingers_for_tap) # too few fingers
 
     def update(self, frame, tap):
-        p, s = self.prev, self.State(frame, tap, self.prev)
-        self.prev = s
+        s = self.prev = self.State(frame, tap, self.prev)
 
         if (math.isnan(s.accel) # could not calculate acceleration
             or s.elapsed > self.timeout # too long since last update
@@ -148,7 +149,7 @@ class HandMovePointer(BasePointer):
             or abs(s.accel) > self.max_accel): # acceleration too high
             return
 
-        if p and s.nfingers != p.nfingers:
+        if s.d_nfingers:
             self.last_change = s.ts
         if s.ts - self.last_change < self.finger_pause:
             s.d_pos *= 0 # don't move pointer when #fingers changes
